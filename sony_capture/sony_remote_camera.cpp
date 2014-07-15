@@ -9,7 +9,7 @@
 using namespace std;
 using namespace boost;
 
-std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(string my_own_ip){
+std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(string my_own_ip) {
 	try {
 		return std::shared_ptr<Sony_Remote_Camera_Interface>(new Sony_Remote_Camera_Implementation(my_own_ip));
 	}
@@ -21,21 +21,26 @@ std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(string my_own_
 
 
 Sony_Remote_Camera_Implementation::Sony_Remote_Camera_Implementation(string my_own_ip_address) 
-	:SSDP_Client(io_service,my_own_ip_address),
+	:data(nullptr),
+	SSDP_Client(io_service,my_own_ip_address),
 	socket_options(io_service),
 	socket_liveview(io_service_liveview),
-	tcp_resolver(io_service)
-	//endpoint(io_service)
-{
+	tcp_resolver(io_service) {
 	io_service.run();
 }
 
 Sony_Remote_Camera_Implementation::~Sony_Remote_Camera_Implementation() {
+	liveview_thread.interrupt();
+	socket_options.close();
+	socket_liveview.close();
+	io_service.stop();
+	io_service_liveview.stop();
+	if(!got_it) free(data);
 }
 
 
 Sony_Remote_Camera_Interface::Sony_Capture_Error
-Sony_Remote_Camera_Implementation::Retrieve_Decription_File(){
+Sony_Remote_Camera_Implementation::Retrieve_Decription_File() {
 	const string description_url(SSDP_Client.Get_Description_Url());
 	size_t last_slash = description_url.rfind('/');
 	size_t colon = description_url.rfind(':');
@@ -46,7 +51,6 @@ Sony_Remote_Camera_Implementation::Retrieve_Decription_File(){
 	request_stream << "GET " << path << " HTTP/1.1\r\n";
 	request_stream << "Host: " << server << "\r\n";
 	request_stream << "Accept: */*\r\n";
-	//request_stream << "Connection: close\r\n";
 	request_stream << "\r\n";
 	asio::ip::tcp::resolver::query query(server, port);
 	asio::ip::tcp::resolver::iterator endpoint_iterator = tcp_resolver.resolve(query);
@@ -57,14 +61,12 @@ Sony_Remote_Camera_Implementation::Retrieve_Decription_File(){
 		io_service.reset();
 		io_service.run();
 		Parse_Description();
-	}
-	catch (ios_base::failure e) {
+	} catch (ios_base::failure e) {
 		cerr << e.what();
 		return SC_ERROR;
 	}
 	return SC_NO_ERROR;
 }
-
 
 Sony_Remote_Camera_Implementation::Sony_Capture_Error Sony_Remote_Camera_Implementation::Launch_Liveview(){
 	ostream request_stream(&tcp_request_options);
@@ -278,18 +280,38 @@ void Sony_Remote_Camera_Implementation::Handle_Read_Payload_Header(const boost::
 void Sony_Remote_Camera_Implementation::Handle_Read_Image(const boost::system::error_code& err) {
 	//cv::Mat imgbuf(image,false);
 	//cv::Mat m(cv::imdecode(imgbuf, cv::IMREAD_COLOR)); 
+	int ts, fn;
+	ts = 0;
+	fn = 0;
 	vector<uint8_t> start_marker = { 0xff, 0xd8 };
 	vector<uint8_t> end_marker = { 0xff, 0xd9 };
 	auto start = search(jpeg_image.begin(), jpeg_image.end(), start_marker.begin(), start_marker.end());
 	auto end = search(jpeg_image.begin(), jpeg_image.end(), end_marker.begin(), end_marker.end());
 	size_t a = start - jpeg_image.begin();
 	size_t b = end - jpeg_image.begin();
-	ofstream image_file("image.jpg", ios::out | ios::binary | ios::trunc);
-	image_file.write((char*)&(*start), jpeg_image.end() - start);
-	image_file.close();
+	//ofstream image_file("image.jpg", ios::out | ios::binary | ios::trunc);
+	//image_file.write((char*)&(*start), jpeg_image.end() - start);
+	//image_file.close();
 	boost::asio::async_read(socket_liveview, asio::buffer(liveview_common_header, 12),
 		boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Common_Header, this,
 		boost::asio::placeholders::error));
+	auto ita = jpeg_image.begin();
+	auto itb = jpeg_image.end();
+	if (end != jpeg_image.end()) end+=2; // we want to copy end if we found it
+	uint8_t* new_data = (uint8_t*)malloc(end - start);
+	copy(start, end, new_data);
+	liveview_mutex.lock();
+	file_size = end - start;
+	uint8_t* old_data = data;
+	data = new_data;
+	timestamp = ts;
+	frame_number = fn;
+	bool free_old_data = !got_it;
+	got_it = false;
+	liveview_mutex.unlock();
+	if (free_old_data) {
+		free(old_data);
+	}
 }
 
 void Sony_Remote_Camera_Implementation::Parse_Description() {
@@ -304,6 +326,46 @@ void Sony_Remote_Camera_Implementation::Parse_Description() {
 	}
 }
 
-vector<uint8_t> Sony_Remote_Camera_Implementation::GetLastJPegImage(){
-	return jpeg_image;
+Sony_Remote_Camera_Implementation::Sony_Capture_Error
+Sony_Remote_Camera_Implementation::Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp){
+	//return jpeg_image;
+	liveview_mutex.lock();
+	auto err = SC_NO_ERROR;
+	if (this->data && !got_it) {
+		data = this->data;
+		size = file_size;
+		frame_number = this->frame_number;
+		timestamp = this->timestamp;
+		got_it = true;
+	} else {
+		err = SC_NO_NEW_DATA_AVAILABLE;
+	}
+	liveview_mutex.unlock();
+	return err;
+}
+
+Sony_Remote_Camera_Implementation::Sony_Capture_Error
+Sony_Remote_Camera_Implementation::Set_Shoot_Mode(const char* mode) {
+	if (strcmp(mode, "still") || strcmp(mode, "movie") || strcmp(mode, "audio") || strcmp(mode, "intervalstill")){
+		string command = Build_JSON_Command("setShootMode", { "movie" });
+		return SC_NO_ERROR;
+	}
+	else return SC_WRONG_PARAMETER;
+}
+
+string Sony_Remote_Camera_Implementation::Build_JSON_Command(const string& method, const vector<string>& params){
+	using boost::property_tree::ptree;
+	ptree pt;
+	pt.put("method", "setShootMode");
+	ptree child_params;
+	for (auto s : params) {
+		ptree child_params;
+		child_params.add("", s);
+	}
+	pt.add_child("params",child_params);
+	pt.put("id",++current_json_id);
+	pt.put("version", "1.0");
+	stringstream ss;
+	property_tree::write_json(ss,pt);
+	return ss.str();
 }

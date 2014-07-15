@@ -2,8 +2,9 @@
 #include "SSDP_Client.h"
 #include <vector>
 #include <string>
-#include <boost\asio.hpp>
 #include <memory>
+#include <atomic>
+#include <boost\asio.hpp>
 #include <boost/thread.hpp>
 
 #ifdef SONY_CAPTURE_EXPORTS
@@ -17,13 +18,16 @@ class Sony_Remote_Camera_Interface {
 public:
 	DLL enum Sony_Capture_Error {
 		SC_NO_ERROR = 0,
-		SC_ERROR
+		SC_ERROR,
+		SC_NO_NEW_DATA_AVAILABLE,
+		SC_WRONG_PARAMETER
 	};
 
 	virtual ~Sony_Remote_Camera_Interface(){};
 	virtual Sony_Capture_Error Retrieve_Decription_File() = 0;
 	virtual Sony_Capture_Error Launch_Liveview() = 0;
-	virtual std::vector<uint8_t> GetLastJPegImage() = 0;
+	virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp) = 0;
+	virtual Sony_Capture_Error Set_Shoot_Mode(const char* mode) = 0;
 };
 
 class Sony_Remote_Camera_Implementation : public Sony_Remote_Camera_Interface {
@@ -35,7 +39,8 @@ public:
 
 	virtual Sony_Capture_Error Retrieve_Decription_File();
 	virtual Sony_Capture_Error Launch_Liveview();
-	virtual std::vector<uint8_t> GetLastJPegImage();
+	virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp);
+	virtual Sony_Capture_Error Set_Shoot_Mode(const char* mode);
 	
 private:
 	void Handle_Write_HTTP_Request(bool mode_liveview, const boost::system::error_code& err);
@@ -48,6 +53,7 @@ private:
 	void Parse_Description();
 	void Read_Jpeg_Content();
 	void Read_Liveview_Continuously();
+	std::string Build_JSON_Command(const std::string& method, const std::vector<std::string>& params);
 
 
 	boost::asio::io_service io_service;
@@ -67,6 +73,13 @@ private:
 	std::string liveview_url; 
 	std::string camera_service_url;
 	boost::thread liveview_thread;
+	boost::mutex liveview_mutex;
+	uint8_t* data;
+	int timestamp;
+	int frame_number;
+	size_t file_size;
+	bool got_it;
+	int current_json_id;
 };
 
 DLL std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(std::string my_own_ip);
