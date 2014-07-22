@@ -67,10 +67,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ssdp_client.cpp" />
-    <ClCompile Include="sony_remote_camera.cpp" />
+    <ClCompile Include="sony_remote_camera_implementation.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="sony_remote_camera.h" />
+    <ClInclude Include="sony_remote_camera_implementation.h" />
     <ClInclude Include="ssdp_client.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -8,23 +8,24 @@
 
 
 using namespace std;
+using namespace src;
 
 BOOST_AUTO_TEST_SUITE( dsc_qx10 )
 
 
 BOOST_AUTO_TEST_CASE(liveview) {
 	shared_ptr<Sony_Remote_Camera_Interface> s;
-	BOOST_CHECK(s = GetSonyRemoteCamera("10.0.1.1"));
-	BOOST_CHECK(s->Retrieve_Decription_File() == Sony_Remote_Camera_Interface::SC_NO_ERROR);
-	BOOST_CHECK(s->Launch_Liveview() == Sony_Remote_Camera_Interface::SC_NO_ERROR);
+	BOOST_REQUIRE(s = GetSonyRemoteCamera("10.0.1.1"));
+	BOOST_CHECK(s->Retrieve_Decription_File() == SC_NO_ERROR);
+	BOOST_CHECK(s->Launch_Liveview() == SC_NO_ERROR);
 	uint8_t* img;
 	size_t size;
 	int ts, fn;
 	auto err = s->Get_Last_JPeg_Image(img, size, fn, ts);
-	BOOST_CHECK(err == Sony_Remote_Camera_Interface::SC_NO_NEW_DATA_AVAILABLE);
+	BOOST_CHECK(err == SC_NO_NEW_DATA_AVAILABLE);
 	this_thread::sleep_for(chrono::milliseconds(2000));
 	err = s->Get_Last_JPeg_Image(img, size, fn, ts);
-	BOOST_REQUIRE(err == Sony_Remote_Camera_Interface::SC_NO_ERROR);
+	BOOST_REQUIRE(err == SC_NO_ERROR);
 	vector<uint8_t> start_marker = { 0xff, 0xd8 };
 	vector<uint8_t> end_marker = { 0xff, 0xd9 };
 	auto start = search(img, img + size, start_marker.begin(), start_marker.end());
@@ -34,7 +35,7 @@ BOOST_AUTO_TEST_CASE(liveview) {
 	this_thread::sleep_for(chrono::milliseconds(200));
 	free(img);
 	err = s->Get_Last_JPeg_Image(img, size, fn, ts);
-	BOOST_REQUIRE(err == Sony_Remote_Camera_Interface::SC_NO_ERROR);
+	BOOST_REQUIRE(err == SC_NO_ERROR);
 	start = search(img, img + size, start_marker.begin(), start_marker.end());
 	end = search(img, img + size, end_marker.begin(), end_marker.end());
 	BOOST_CHECK(start != img + size);
@@ -44,9 +45,9 @@ BOOST_AUTO_TEST_CASE(liveview) {
 
 BOOST_AUTO_TEST_CASE(camera_mode_movie){
 	shared_ptr<Sony_Remote_Camera_Interface> s;
-	BOOST_CHECK(s = GetSonyRemoteCamera("10.0.1.1"));
-	BOOST_CHECK(s->Retrieve_Decription_File() == Sony_Remote_Camera_Interface::SC_NO_ERROR);
-	BOOST_CHECK(s->Set_Shoot_Mode("movie") == Sony_Remote_Camera_Interface::SC_NO_ERROR);
+	BOOST_REQUIRE(s = GetSonyRemoteCamera("10.0.1.1"));
+	BOOST_CHECK(s->Retrieve_Decription_File() == SC_NO_ERROR);
+	BOOST_CHECK(s->Set_Shoot_Mode(shoot_mode_movie) == SC_NO_ERROR);
 }
 
 

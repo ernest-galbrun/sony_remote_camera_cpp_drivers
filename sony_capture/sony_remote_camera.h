@@ -13,9 +13,7 @@
 #define DLL __declspec(dllimport)
 #endif
 
-
-class Sony_Remote_Camera_Interface {
-public:
+namespace src {
 	DLL enum Sony_Capture_Error {
 		SC_NO_ERROR = 0,
 		SC_ERROR,
@@ -23,63 +21,17 @@ public:
 		SC_WRONG_PARAMETER
 	};
 
-	virtual ~Sony_Remote_Camera_Interface(){};
-	virtual Sony_Capture_Error Retrieve_Decription_File() = 0;
-	virtual Sony_Capture_Error Launch_Liveview() = 0;
-	virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp) = 0;
-	virtual Sony_Capture_Error Set_Shoot_Mode(const char* mode) = 0;
-};
+	DLL enum Shoot_Mode { shoot_mode_still, shoot_mode_movie, shoot_mode_audio, shoot_mode_intervalstill };
 
-class Sony_Remote_Camera_Implementation : public Sony_Remote_Camera_Interface {
-public:
-	Sony_Remote_Camera_Implementation() = delete;
-	Sony_Remote_Camera_Implementation(std::string my_own_ip_address);
-	~Sony_Remote_Camera_Implementation();
+	class Sony_Remote_Camera_Interface {
+	public:
+		virtual ~Sony_Remote_Camera_Interface(){};
+		virtual Sony_Capture_Error Retrieve_Decription_File() = 0;
+		virtual Sony_Capture_Error Launch_Liveview() = 0;
+		virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp) = 0;
+		virtual Sony_Capture_Error Set_Shoot_Mode(Shoot_Mode mode) = 0;
+	};
 
+	DLL std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(std::string my_own_ip);
 
-	virtual Sony_Capture_Error Retrieve_Decription_File();
-	virtual Sony_Capture_Error Launch_Liveview();
-	virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp);
-	virtual Sony_Capture_Error Set_Shoot_Mode(const char* mode);
-	
-private:
-	void Handle_Write_HTTP_Request(bool mode_liveview, const boost::system::error_code& err);
-	void Handle_Read_Status_Line(bool mode_liveview, const boost::system::error_code& err, const size_t bytes_transferred);
-	void Handle_Read_Headers(bool mode_liveview, const boost::system::error_code& err);
-	void Handle_Read_Text_Content(const boost::system::error_code& err);
-	void Handle_Read_Common_Header(const boost::system::error_code& err);
-	void Handle_Read_Payload_Header(const boost::system::error_code& err);
-	void Handle_Read_Image(const boost::system::error_code& err);
-	void Parse_Description();
-	void Read_Jpeg_Content();
-	void Read_Liveview_Continuously();
-	std::string Build_JSON_Command(const std::string& method, const std::vector<std::string>& params);
-
-
-	boost::asio::io_service io_service;
-	boost::asio::io_service io_service_liveview;
-	boost::asio::streambuf tcp_request_options;
-	boost::asio::streambuf tcp_response_options;
-	boost::asio::streambuf tcp_request_liveview;
-	boost::asio::streambuf tcp_response_liveview;
-	boost::asio::ip::tcp::socket socket_options;
-	boost::asio::ip::tcp::socket socket_liveview;
-	boost::asio::ip::tcp::resolver tcp_resolver;
-	SSDP_Client SSDP_Client;
-	std::vector<uint8_t> jpeg_image;
-	uint8_t liveview_common_header[12];
-	uint8_t liveview_payload_header[128];
-	std::stringstream text_content;
-	std::string liveview_url; 
-	std::string camera_service_url;
-	boost::thread liveview_thread;
-	boost::mutex liveview_mutex;
-	uint8_t* data;
-	int timestamp;
-	int frame_number;
-	size_t file_size;
-	bool got_it;
-	int current_json_id;
-};
-
-DLL std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(std::string my_own_ip);
+}

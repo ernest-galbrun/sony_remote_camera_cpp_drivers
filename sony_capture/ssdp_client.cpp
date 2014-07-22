@@ -27,7 +27,7 @@ SSDP_Client::SSDP_Client(asio::io_service& io_service, string my_own_ip)
 	try {
 		socket.set_option(multicast::outbound_interface(address_v4::from_string(my_own_ip)));
 	}
-	catch (std::exception& e) {
+	catch (std::exception) {
 		ssdp_failure f("Could not bind to the specified ip.\n");
 		throw(f);
 	}
