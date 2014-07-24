@@ -1,5 +1,6 @@
 #pragma once
-#include "SSDP_Client.h"
+//#include "SSDP_Client.h"
+#include "camera_state.h"
 #include <vector>
 #include <string>
 #include <memory>
@@ -21,7 +22,7 @@ namespace src {
 		SC_WRONG_PARAMETER
 	};
 
-	DLL enum Shoot_Mode { shoot_mode_still, shoot_mode_movie, shoot_mode_audio, shoot_mode_intervalstill };
+	//DLL enum Shoot_Mode { shoot_mode_still, shoot_mode_movie, shoot_mode_audio, shoot_mode_intervalstill };
 
 	class Sony_Remote_Camera_Interface {
 	public:
@@ -29,7 +30,7 @@ namespace src {
 		virtual Sony_Capture_Error Retrieve_Decription_File() = 0;
 		virtual Sony_Capture_Error Launch_Liveview() = 0;
 		virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp) = 0;
-		virtual Sony_Capture_Error Set_Shoot_Mode(Shoot_Mode mode) = 0;
+		virtual Sony_Capture_Error Set_Shoot_Mode(Camera_State::Shoot_Mode mode) = 0;
 	};
 
 	DLL std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(std::string my_own_ip);

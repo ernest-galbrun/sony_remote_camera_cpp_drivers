@@ -47,7 +47,7 @@ BOOST_AUTO_TEST_CASE(camera_mode_movie){
 	shared_ptr<Sony_Remote_Camera_Interface> s;
 	BOOST_REQUIRE(s = GetSonyRemoteCamera("10.0.1.1"));
 	BOOST_CHECK(s->Retrieve_Decription_File() == SC_NO_ERROR);
-	BOOST_CHECK(s->Set_Shoot_Mode(shoot_mode_movie) == SC_NO_ERROR);
+	BOOST_CHECK(s->Set_Shoot_Mode(Camera_State::MOVIE) == SC_NO_ERROR);
 }
 
 

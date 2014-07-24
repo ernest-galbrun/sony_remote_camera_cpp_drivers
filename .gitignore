@@ -156,3 +156,4 @@ $RECYCLE.BIN/
 .DS_Store
 /sony_capture/*.filters
 *.filters
+/tests/image.jpg

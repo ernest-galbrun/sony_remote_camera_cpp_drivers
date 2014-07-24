@@ -1,4 +1,6 @@
+#include "ssdp_client.h"
 #include "sony_remote_camera.h"
+#include "camera_state.h"
 #include <map>
 
 namespace src {
@@ -13,7 +15,7 @@ namespace src {
 		virtual Sony_Capture_Error Retrieve_Decription_File();
 		virtual Sony_Capture_Error Launch_Liveview();
 		virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp);
-		virtual Sony_Capture_Error Set_Shoot_Mode(Shoot_Mode mode);
+		virtual Sony_Capture_Error Set_Shoot_Mode(Camera_State::Shoot_Mode mode);
 
 	private:
 		void Handle_Write_HTTP_Request(bool mode_liveview, const boost::system::error_code& err);
@@ -28,6 +30,7 @@ namespace src {
 		void Read_Liveview_Continuously();
 		Sony_Capture_Error Send_Options_Command(std::string json_request);
 		std::string Build_JSON_Command(const std::string& method, const std::vector<std::string>& params);
+		bool Check_Event(std::istream& json_answer, std::string name, std::string expected_value);
 
 
 		boost::asio::io_service io_service;
@@ -54,6 +57,8 @@ namespace src {
 		size_t file_size;
 		bool got_it;
 		int current_json_id;
-		static const std::map<Shoot_Mode, std::string> shoot_modes_availables;
+		static const std::map<Camera_State::Shoot_Mode, std::string> shoot_modes_availables;
+
+		Camera_State camera_state;
 	};
 }//namespace src

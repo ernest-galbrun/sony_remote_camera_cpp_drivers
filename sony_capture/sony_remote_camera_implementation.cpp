@@ -11,8 +11,8 @@ using namespace std;
 using namespace boost;
 using namespace src;
 
-const std::map<Shoot_Mode, std::string> Sony_Remote_Camera_Implementation::shoot_modes_availables
-= { { shoot_mode_still, "still" }, { shoot_mode_movie, "movie" }, { shoot_mode_audio, "audio" }, { shoot_mode_intervalstill, "intervalstill" } };
+const std::map<Camera_State::Shoot_Mode, std::string> Sony_Remote_Camera_Implementation::shoot_modes_availables
+= { { Camera_State::STILL, "\"still\"" }, { Camera_State::MOVIE, "\"movie\"" }, { Camera_State::AUDIO, "\"audio\"" }, { Camera_State::INTERVALSTILL, "\"intervalstill\"" } };
 
 std::shared_ptr<Sony_Remote_Camera_Interface> src::GetSonyRemoteCamera(string my_own_ip) {
 	try {
@@ -88,17 +88,20 @@ Sony_Capture_Error Sony_Remote_Camera_Implementation::Send_Options_Command(strin
 	request_stream << "Host:" << camera_service_url << "\r\n";
 	request_stream << "\r\n";
 	request_stream << json_request;
-	if (!socket_options.is_open()) {
+	//if (!socket_options.is_open()) {
 		asio::ip::tcp::resolver::query query(server, port);
 		asio::ip::tcp::resolver::iterator endpoint_iterator = tcp_resolver.resolve(query);
 		asio::connect(socket_options, endpoint_iterator);
-	}
+	//}
 	boost::asio::async_write(socket_options, tcp_request_options,
 		boost::bind(&Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request, this, false,
 		boost::asio::placeholders::error));
 	try {
 		io_service.reset();
+		text_content.clear();
+		text_content.str(string());
 		io_service.run();
+		socket_options.close();
 	}
 	catch (ios_base::failure e) {
 		cerr << e.what();
@@ -109,8 +112,7 @@ Sony_Capture_Error Sony_Remote_Camera_Implementation::Send_Options_Command(strin
 
 
 Sony_Capture_Error Sony_Remote_Camera_Implementation::Launch_Liveview(){
-	//string json_request(Build_JSON_Command("startLiveview", {})); 
-	string json_request("{\"method\": \"startLiveview\",\"params\" : [],\"id\" : 1,\"version\" : \"1.0\"}\r\n");
+	string json_request(Build_JSON_Command("startLiveview", {}));// (("{\"method\": \"startLiveview\",\"params\" : [],\"id\" : 1,\"version\" : \"1.0\"}\r\n");
 	if (auto err = Send_Options_Command(json_request)) return err;
 	using boost::property_tree::ptree;
 	ptree pt;
@@ -353,46 +355,36 @@ Sony_Remote_Camera_Implementation::Get_Last_JPeg_Image(uint8_t*& data, size_t& s
 }
 
 Sony_Capture_Error
-Sony_Remote_Camera_Implementation::Set_Shoot_Mode(Shoot_Mode mode) {
+Sony_Remote_Camera_Implementation::Set_Shoot_Mode(Camera_State::Shoot_Mode mode) {
 	string command = Build_JSON_Command("setShootMode", { shoot_modes_availables.at(mode) });
-	//string command = "{\n\"method\": \"setShootMode\",\n\"params\" : [\"movie\"],\n\"id\" : 1,\n\"version\" : \"1.0\"\n}";
+	string ans = text_content.str();
 	if (auto err = Send_Options_Command(command)) return err;
+	while (true){
+		Send_Options_Command(Build_JSON_Command("getEvent", { "false" }));
+		auto done = Check_Event(text_content, "currentShootMode", shoot_modes_availables.at(mode));
+	}
 	return SC_NO_ERROR;
 	//else return SC_WRONG_PARAMETER;
 }
 
 string Sony_Remote_Camera_Implementation::Build_JSON_Command(const string& method, const vector<string>& params){
-	//using boost::property_tree::ptree;
-	//ptree pt;
-	//pt.put("method", "setShootMode");
-	//ptree child_params; 
-	//for (auto s : params) {
-	//	ptree p;
-	//	p.put("", s);
-	//	child_params.push_back(make_pair("", p));
-	//}/*
-	//if (params.empty()) {
-	//	ptree p;
-	//	p.put("", "");
-	//	child_params.push_back(make_pair("", p));
-	//}*/
-	//pt.add_child("params",child_params);
-	//pt.put<int>("id",++current_json_id);
-	//pt.put("version", "1.0");
-	//stringstream ss;
-	//property_tree::write_json(ss,pt);
-	//string command = ss.str();
-	//replace(command.begin(), command.end(), '\n', ' ');
 	stringstream command;
 	command << "{\n";
-	command << "\t\"method\": \"" << method << "\"\n";
-	command << "\t\"params\": [\n";
+	command << "\t\"method\": \"" << method << "\",\n";
+	command << "\t\"params\": [";
 	for (auto s : params)
-		command << "\t\t\"" << s << "\",\n";
-	command.seekp(int(command.tellp()) - 2);
-	command << "\n]\n";
-	command << "\t\"id\": " << ++current_json_id << "\n";
+		command << s << ", ";
+	if(!params.empty())
+		command.seekp(int(command.tellp()) - 2);
+	command << "],\n";
+	command << "\t\"id\": " << ++current_json_id << ",\n";
 	command << "\t\"version\": \"1.0\"\n";
 	command << "}\n";
 	return command.str();
 }
+
+bool Sony_Remote_Camera_Implementation::Check_Event(std::istream& json_answer, string name, string expected_value){
+	camera_state.Update_State(json_answer);
+	return true;
+}
+
