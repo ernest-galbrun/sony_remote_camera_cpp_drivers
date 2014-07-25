@@ -2,6 +2,7 @@
 #include "sony_remote_camera_implementation.h"
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
+#include <boost/thread.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/property_tree/json_parser.hpp>
@@ -30,21 +31,28 @@ Sony_Remote_Camera_Implementation::Sony_Remote_Camera_Implementation(string my_o
 	SSDP_Client(io_service,my_own_ip_address),
 	socket_options(io_service),
 	socket_liveview(io_service_liveview),
+	socket_event_listener(io_service_event_listener),
 	tcp_resolver(io_service) {
 	io_service.run();
+	Retrieve_Decription_File();
+	io_service.run();
+	event_listener_thread = boost::thread(&Sony_Remote_Camera_Implementation::Check_Events, this);
 }
 
 Sony_Remote_Camera_Implementation::~Sony_Remote_Camera_Implementation() {
 	liveview_thread.interrupt();
+	event_listener_thread.interrupt();
 	socket_options.close();
 	socket_liveview.close();
+	socket_event_listener.close();
 	io_service.stop();
 	io_service_liveview.stop();
 	liveview_thread.join();
+	event_listener_thread.join();
 	if(!got_it) free(data);
 }
 
-Sony_Capture_Error Sony_Remote_Camera_Implementation::Retrieve_Decription_File() {
+void Sony_Remote_Camera_Implementation::Retrieve_Decription_File() {
 	const string description_url(SSDP_Client.Get_Description_Url());
 	size_t last_slash = description_url.rfind('/');
 	size_t colon = description_url.rfind(':');
@@ -60,22 +68,19 @@ Sony_Capture_Error Sony_Remote_Camera_Implementation::Retrieve_Decription_File()
 	asio::ip::tcp::resolver::iterator endpoint_iterator = tcp_resolver.resolve(query);
 	asio::connect(socket_options, endpoint_iterator);
 	boost::asio::async_write(socket_options, tcp_request_options,
-		boost::bind(&Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request, this, false, boost::asio::placeholders::error));
-	try {
-		io_service.reset();
-		io_service.run();
-		Parse_Description();
-		socket_options.close();
-	} catch (ios_base::failure e) {
-		cerr << e.what();
-		return SC_ERROR;
-	}
-	return SC_NO_ERROR;
+		boost::bind(&Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request, this, false, false, boost::asio::placeholders::error));
+	io_service.reset();
+	io_service.run();
+	Parse_Description();
+	socket_options.close();
 }
 
 
-Sony_Capture_Error Sony_Remote_Camera_Implementation::Send_Options_Command(string json_request){
-	ostream request_stream(&tcp_request_options);
+Sony_Capture_Error Sony_Remote_Camera_Implementation::Send_Options_Command(string json_request, bool event_thread){
+	auto& buf = (event_thread ? tcp_request_events : tcp_request_options);
+	ostream request_stream(&buf);
+	auto& socket = event_thread ? socket_event_listener : socket_options;
+	boost::lock_guard<boost::mutex> lock(mtx);
 	size_t last_slash = camera_service_url.rfind('/');
 	size_t colon = camera_service_url.rfind(':');
 	string server = camera_service_url.substr(7, colon - 7);
@@ -88,20 +93,27 @@ Sony_Capture_Error Sony_Remote_Camera_Implementation::Send_Options_Command(strin
 	request_stream << "Host:" << camera_service_url << "\r\n";
 	request_stream << "\r\n";
 	request_stream << json_request;
-	//if (!socket_options.is_open()) {
-		asio::ip::tcp::resolver::query query(server, port);
-		asio::ip::tcp::resolver::iterator endpoint_iterator = tcp_resolver.resolve(query);
-		asio::connect(socket_options, endpoint_iterator);
-	//}
-	boost::asio::async_write(socket_options, tcp_request_options,
-		boost::bind(&Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request, this, false,
-		boost::asio::placeholders::error));
+	asio::ip::tcp::resolver::query query(server, port);
+	asio::ip::tcp::resolver::iterator endpoint_iterator = tcp_resolver.resolve(query);
+	asio::connect(socket, endpoint_iterator);
+	boost::asio::async_write(socket, buf,
+	boost::bind(&Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request, this, false, event_thread,
+	boost::asio::placeholders::error));
 	try {
-		io_service.reset();
-		text_content.clear();
-		text_content.str(string());
-		io_service.run();
-		socket_options.close();
+		if (!event_thread) {
+			io_service.reset();
+			text_content.clear();
+			text_content.str(string());
+			io_service.run();
+			//socket_options.close();
+		}
+		else {
+			io_service_event_listener.reset();
+			events_text_content.clear();
+			events_text_content.str(string());
+			io_service_event_listener.run();
+			//socket_event_listener.close();
+		}
 	}
 	catch (ios_base::failure e) {
 		cerr << e.what();
@@ -142,31 +154,28 @@ void Sony_Remote_Camera_Implementation::Read_Liveview_Continuously(){
 		asio::ip::tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
 		asio::connect(socket_liveview,endpoint_iterator);
 		boost::asio::async_write(socket_liveview, tcp_request_liveview,
-			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request, this, true,
+			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request, this, true, false,
 			boost::asio::placeholders::error));
 		io_service_liveview.run();
 		io_service_liveview.reset();
 	}
 }
 
-void Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request(bool mode_liveview, const system::error_code& err) {
-	asio::ip::tcp::socket& s = mode_liveview ? socket_liveview : socket_options;
-	asio::streambuf& buf = mode_liveview ? tcp_response_liveview : tcp_response_options;
+void Sony_Remote_Camera_Implementation::Handle_Write_HTTP_Request(bool mode_liveview, bool event_thread, const system::error_code& err) {
+	asio::ip::tcp::socket& s = mode_liveview ? socket_liveview : (event_thread ? socket_event_listener : socket_options);
+	asio::streambuf& buf = mode_liveview ? tcp_response_liveview : (event_thread ? tcp_response_events : tcp_response_options);
 	if (!err) {
-		// Read the response status line. The response_ streambuf will
-		// automatically grow to accommodate the entire line. The growth may be
-		// limited by passing a maximum size to the streambuf constructor.
 		boost::asio::async_read_until(s, buf, "\r\n",
-			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Status_Line, this, mode_liveview,
+			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Status_Line, this, mode_liveview, event_thread,
 			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	} else {
 		throw(ios_base::failure(err.message()));
 	}
 }
 
-void Sony_Remote_Camera_Implementation::Handle_Read_Status_Line(bool mode_liveview, const system::error_code& err, const size_t bytes_transferred) {
-	asio::ip::tcp::socket& s = mode_liveview ? socket_liveview : socket_options;
-	asio::streambuf& buf = mode_liveview ? tcp_response_liveview : tcp_response_options;
+void Sony_Remote_Camera_Implementation::Handle_Read_Status_Line(bool mode_liveview, bool event_thread, const system::error_code& err, const size_t bytes_transferred) {
+	asio::ip::tcp::socket& s = mode_liveview ? socket_liveview : (event_thread ? socket_event_listener : socket_options);
+	asio::streambuf& buf = mode_liveview ? tcp_response_liveview : (event_thread ? tcp_response_events : tcp_response_options);
 	if (!err) {
 		// Check that response is OK.
 		std::istream response_stream(&buf);
@@ -190,7 +199,7 @@ void Sony_Remote_Camera_Implementation::Handle_Read_Status_Line(bool mode_livevi
 		}
 		// Read the response headers, which are terminated by a blank line.
 		boost::asio::async_read_until(s, buf, "\r\n\r\n",
-			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Headers, this, mode_liveview,
+			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Headers, this, mode_liveview, event_thread,
 			boost::asio::placeholders::error));
 	}
 	else {
@@ -200,9 +209,9 @@ void Sony_Remote_Camera_Implementation::Handle_Read_Status_Line(bool mode_livevi
 	}
 }
 
-void Sony_Remote_Camera_Implementation::Handle_Read_Headers(bool mode_liveview, const system::error_code& err) {
-	asio::ip::tcp::socket& s = mode_liveview ? socket_liveview : socket_options;
-	asio::streambuf& buf = mode_liveview ? tcp_response_liveview : tcp_response_options;
+void Sony_Remote_Camera_Implementation::Handle_Read_Headers(bool mode_liveview, bool event_thread, const system::error_code& err) {
+	asio::ip::tcp::socket& s = mode_liveview ? socket_liveview : (event_thread ? socket_event_listener : socket_options);
+	asio::streambuf& buf = mode_liveview ? tcp_response_liveview : (event_thread ? tcp_response_events : tcp_response_options);
 	if (!err) {
 		// Process the response headers.
 		std::istream response_stream(&buf);
@@ -213,15 +222,16 @@ void Sony_Remote_Camera_Implementation::Handle_Read_Headers(bool mode_liveview, 
 		if (mode_liveview){
 			Read_Jpeg_Content();				
 		} else {
+			ostream& os = event_thread ? events_text_content : text_content;
 			// Write whatever content we already have to output.
 			if (buf.size() > 0) {
 				//std::cout << &tcp_response_;
-				text_content << &buf;
+				os << &buf;
 			}
 			// Start reading remaining data until EOF.
-			boost::asio::async_read(socket_options, tcp_response_options,
+			boost::asio::async_read(s, buf,
 				boost::asio::transfer_at_least(1),
-				boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Text_Content, this,
+				boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Text_Content, this, event_thread,
 				boost::asio::placeholders::error));
 		}
 	}
@@ -232,14 +242,17 @@ void Sony_Remote_Camera_Implementation::Handle_Read_Headers(bool mode_liveview, 
 	}
 }
 
-void Sony_Remote_Camera_Implementation::Handle_Read_Text_Content(const boost::system::error_code& err) {
+void Sony_Remote_Camera_Implementation::Handle_Read_Text_Content(bool event_thread, const boost::system::error_code& err) {
 	if (!err) {
 		// Write all of the data that has been read so far.
-		text_content << &tcp_response_options;
+		ostream& os = event_thread ? events_text_content : text_content;
+		asio::streambuf& buf = event_thread ? tcp_response_events : tcp_response_options;
+		asio::ip::tcp::socket& s = event_thread ? socket_event_listener : socket_options;
+		os << &buf;
 		// Continue reading remaining data until EOF.
-		boost::asio::async_read(socket_options, tcp_response_options,
+		boost::asio::async_read(s, buf,
 			boost::asio::transfer_at_least(1),
-			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Text_Content, this,
+			boost::bind(&Sony_Remote_Camera_Implementation::Handle_Read_Text_Content, this, event_thread,
 			boost::asio::placeholders::error));
 	} else if (err != boost::asio::error::eof) {
 		std::cout << "Error: " << err << "\n";
@@ -263,7 +276,10 @@ void Sony_Remote_Camera_Implementation::Read_Jpeg_Content() {
 	} else {
 		tcp_response_liveview.sgetn((char *)liveview_common_header, 12);
 		tcp_response_liveview.sgetn((char *)liveview_payload_header, 128);
-		n -= (128 + 12);
+		n -= (128 + 12); 
+		size_t size = liveview_payload_header[6] << 0 | liveview_payload_header[5] << 8 | liveview_payload_header[4] << 24;
+		size += 10;
+		jpeg_image.resize(size);
 		tcp_response_liveview.sgetn((char *)&jpeg_image[0], n);
 		Handle_Read_Common_Header(system::error_code(), 128, n);
 	}
@@ -331,8 +347,10 @@ void Sony_Remote_Camera_Implementation::Parse_Description() {
 	liveview_url = pt.get<string>("root.device.av:X_ScalarWebAPI_DeviceInfo.av:X_ScalarWebAPI_ImagingDevice.av:X_ScalarWebAPI_LiveView_URL");
 	for (ptree::value_type &v : pt.get_child("root.device.av:X_ScalarWebAPI_DeviceInfo.av:X_ScalarWebAPI_ServiceList")){
 		string service = v.second.get<string>("av:X_ScalarWebAPI_ServiceType");
-		if (service == "camera")
+		if (service == "camera") {
+			boost::lock_guard<boost::mutex> lock(mtx);
 			camera_service_url = v.second.get<string>("av:X_ScalarWebAPI_ActionList_URL");
+		}
 	}
 }
 
@@ -359,9 +377,12 @@ Sony_Remote_Camera_Implementation::Set_Shoot_Mode(Camera_State::Shoot_Mode mode)
 	string command = Build_JSON_Command("setShootMode", { shoot_modes_availables.at(mode) });
 	string ans = text_content.str();
 	if (auto err = Send_Options_Command(command)) return err;
-	while (true){
-		Send_Options_Command(Build_JSON_Command("getEvent", { "false" }));
-		auto done = Check_Event(text_content, "currentShootMode", shoot_modes_availables.at(mode));
+	auto check_shoot_mode = [&]() ->bool {
+		boost::lock_guard<boost::mutex> lock(camera_state.mtx);
+		return camera_state.shoot_mode == mode;
+	};
+	while (!check_shoot_mode()){
+		this_thread::sleep_for(boost::chrono::milliseconds(10));
 	}
 	return SC_NO_ERROR;
 	//else return SC_WRONG_PARAMETER;
@@ -388,3 +409,25 @@ bool Sony_Remote_Camera_Implementation::Check_Event(std::istream& json_answer, s
 	return true;
 }
 
+void Sony_Remote_Camera_Implementation::Check_Events(){
+	string s = "false";
+	while (true) {
+		boost::this_thread::interruption_point();
+		try {
+			Send_Options_Command(Build_JSON_Command("getEvent", { s }), true);
+			camera_state.Update_State(events_text_content);
+		}
+		catch (std::exception e){
+			cerr << e.what();
+			continue;
+		}
+		s = "true";
+	}
+}
+
+
+Sony_Capture_Error Sony_Remote_Camera_Implementation::Set_Recording(bool start){
+	string s = start ? "startMovieRec" : "stopMovieRec";
+	Send_Options_Command(Build_JSON_Command(s, {}));
+	return SC_NO_ERROR;
+}

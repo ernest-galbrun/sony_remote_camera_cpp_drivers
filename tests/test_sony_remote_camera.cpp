@@ -3,6 +3,8 @@
 //#include <boost/test/execution_monitor.hpp>
 #include <memory>
 #include <thread>
+#include <iostream>
+#include <fstream>
 #include "../sony_capture/sony_remote_camera.h"
 
 
@@ -16,7 +18,6 @@ BOOST_AUTO_TEST_SUITE( dsc_qx10 )
 BOOST_AUTO_TEST_CASE(liveview) {
 	shared_ptr<Sony_Remote_Camera_Interface> s;
 	BOOST_REQUIRE(s = GetSonyRemoteCamera("10.0.1.1"));
-	BOOST_CHECK(s->Retrieve_Decription_File() == SC_NO_ERROR);
 	BOOST_CHECK(s->Launch_Liveview() == SC_NO_ERROR);
 	uint8_t* img;
 	size_t size;
@@ -46,8 +47,24 @@ BOOST_AUTO_TEST_CASE(liveview) {
 BOOST_AUTO_TEST_CASE(camera_mode_movie){
 	shared_ptr<Sony_Remote_Camera_Interface> s;
 	BOOST_REQUIRE(s = GetSonyRemoteCamera("10.0.1.1"));
-	BOOST_CHECK(s->Retrieve_Decription_File() == SC_NO_ERROR);
+	BOOST_CHECK(s->Launch_Liveview() == SC_NO_ERROR);
 	BOOST_CHECK(s->Set_Shoot_Mode(Camera_State::MOVIE) == SC_NO_ERROR);
+	uint8_t* img;
+	size_t size;
+	int ts, fn;
+	decltype(s->Get_Last_JPeg_Image(img, size, fn, ts)) err;
+	int i = 0;
+	BOOST_CHECK(!s->Set_Recording(true));
+	for (int i=0;i<100;++i){
+		//err = s->Get_Last_JPeg_Image(img, size, fn, ts);
+		this_thread::sleep_for(chrono::milliseconds(200));
+		/*stringstream filename;
+		filename << "image" << i << ".jpg";
+		std::ofstream image_file(filename.str(), ios::out | ios::binary | ios::trunc);
+		image_file.write((char*)img, size);
+		image_file.close();*/
+	}
+	BOOST_CHECK(!s->Set_Recording(false));
 }
 
 

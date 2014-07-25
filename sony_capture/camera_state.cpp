@@ -11,6 +11,19 @@ void Camera_State::Update_State(std::istream& json_answer){
 	using boost::property_tree::ptree;
 	ptree pt;
 	read_json(json_answer, pt);
+	try {
+		auto v2 = pt.get_child("error"); 
+		for (ptree::value_type& v3 : v2.get_child("")) {
+			//	for (ptree::value_type &v3 : pt.get_child("")){
+			//results.push_back(v3.second);
+			auto s = v3.second.data();
+			//	}
+		}
+		return;
+	}
+	catch (std::exception){
+
+	}
 	auto v2 = pt.get_child("result");
 	//auto v9 = pt.get<string>("currentShootMode");
 	//auto v3 = v2.get_child("");

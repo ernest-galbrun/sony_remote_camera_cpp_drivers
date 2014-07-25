@@ -157,3 +157,4 @@ $RECYCLE.BIN/
 /sony_capture/*.filters
 *.filters
 /tests/image.jpg
+/tests/*.jpg

@@ -27,10 +27,11 @@ namespace src {
 	class Sony_Remote_Camera_Interface {
 	public:
 		virtual ~Sony_Remote_Camera_Interface(){};
-		virtual Sony_Capture_Error Retrieve_Decription_File() = 0;
+		//virtual Sony_Capture_Error Retrieve_Decription_File() = 0;
 		virtual Sony_Capture_Error Launch_Liveview() = 0;
 		virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp) = 0;
 		virtual Sony_Capture_Error Set_Shoot_Mode(Camera_State::Shoot_Mode mode) = 0;
+		virtual Sony_Capture_Error Set_Recording(bool start) = 0;
 	};
 
 	DLL std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(std::string my_own_ip);
