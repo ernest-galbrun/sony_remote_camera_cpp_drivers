@@ -9,3 +9,8 @@ https://developer.sony.com/develop/cameras/
 It includes a discovery protocol over ssdp, the http implementation using boost/asio, and the json parsing.
 
 It has only been tested on a sony QX10 for the moment.
+
+See sony_remote_camera.h for the API interface, and test project for exemples of how to use it.
+
+
+Dependencies: Boost
