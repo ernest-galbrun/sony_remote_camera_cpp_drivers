@@ -15,13 +15,13 @@ using namespace src;
 const std::map<Camera_State::Shoot_Mode, std::string> Sony_Remote_Camera_Implementation::shoot_modes_availables
 = { { Camera_State::STILL, "\"still\"" }, { Camera_State::MOVIE, "\"movie\"" }, { Camera_State::AUDIO, "\"audio\"" }, { Camera_State::INTERVALSTILL, "\"intervalstill\"" } };
 
-std::shared_ptr<Sony_Remote_Camera_Interface> src::GetSonyRemoteCamera(string my_own_ip) {
+Sony_Remote_Camera_Interface* src::GetSonyRemoteCamera(string my_own_ip) {
 	try {
-		return std::shared_ptr<Sony_Remote_Camera_Interface>(new Sony_Remote_Camera_Implementation(my_own_ip));
+		return new Sony_Remote_Camera_Implementation(my_own_ip);
 	}
 	catch (std::exception e) {
 		cerr << e.what();
-		return std::shared_ptr<Sony_Remote_Camera_Interface>(nullptr);
+        return nullptr;
 	}
 }
 

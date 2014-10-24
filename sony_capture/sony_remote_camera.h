@@ -22,18 +22,19 @@ namespace src {
 		SC_WRONG_PARAMETER
 	};
 
-	//DLL enum Shoot_Mode { shoot_mode_still, shoot_mode_movie, shoot_mode_audio, shoot_mode_intervalstill };
-
 	class Sony_Remote_Camera_Interface {
 	public:
 		virtual ~Sony_Remote_Camera_Interface(){};
 		//virtual Sony_Capture_Error Retrieve_Decription_File() = 0;
 		virtual Sony_Capture_Error Launch_Liveview() = 0;
+		// Get Liveview image along with its size, frame number and timestamp.
+		// It is your responsability to free the memory pointed to data when you have finished using it
+        // returns SC_NO_NEW_DATA_AVAILABLE and dont modify the inpupts if this image has already been sent
 		virtual Sony_Capture_Error Get_Last_JPeg_Image(uint8_t*& data, size_t& size, int& frame_number, int& timestamp) = 0;
 		virtual Sony_Capture_Error Set_Shoot_Mode(Camera_State::Shoot_Mode mode) = 0;
 		virtual Sony_Capture_Error Set_Recording(bool start) = 0;
 	};
 
-	DLL std::shared_ptr<Sony_Remote_Camera_Interface> GetSonyRemoteCamera(std::string my_own_ip);
+	DLL Sony_Remote_Camera_Interface* GetSonyRemoteCamera(std::string my_own_ip);
 
 }

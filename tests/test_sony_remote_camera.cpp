@@ -16,7 +16,7 @@ BOOST_AUTO_TEST_SUITE( dsc_qx10 )
 
 
 BOOST_AUTO_TEST_CASE(liveview) {
-	shared_ptr<Sony_Remote_Camera_Interface> s;
+    Sony_Remote_Camera_Interface* s;
 	BOOST_REQUIRE(s = GetSonyRemoteCamera("10.0.1.1"));
 	BOOST_CHECK(s->Launch_Liveview() == SC_NO_ERROR);
 	uint8_t* img;
@@ -45,7 +45,7 @@ BOOST_AUTO_TEST_CASE(liveview) {
 }
 
 BOOST_AUTO_TEST_CASE(camera_mode_movie){
-	shared_ptr<Sony_Remote_Camera_Interface> s;
+    Sony_Remote_Camera_Interface* s;
 	BOOST_REQUIRE(s = GetSonyRemoteCamera("10.0.1.1"));
 	BOOST_CHECK(s->Launch_Liveview() == SC_NO_ERROR);
 	BOOST_CHECK(s->Set_Shoot_Mode(Camera_State::MOVIE) == SC_NO_ERROR);
@@ -69,7 +69,7 @@ BOOST_AUTO_TEST_CASE(camera_mode_movie){
 
 
 BOOST_AUTO_TEST_CASE(wrong_ip) {
-	shared_ptr<Sony_Remote_Camera_Interface> s;
+	Sony_Remote_Camera_Interface* s;
 	s = GetSonyRemoteCamera("193.54.20.196");
 	BOOST_CHECK(s == 0);
 }
